@@ -1,0 +1,25 @@
+# R files
+.Rhistory
+.RData
+.Rproj.user
+*.Rproj
+
+# Data files (keep structure, ignore data)
+data/*
+!data/.gitkeep
+!data/README.md
+
+# Results/output files
+results/*
+!results/.gitkeep
+figures/*
+!figures/.gitkeep
+
+# System files
+.DS_Store
+Thumbs.db
+*~
+
+# Temporary files
+*.tmp
+*.log
