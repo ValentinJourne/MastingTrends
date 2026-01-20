@@ -41,7 +41,7 @@ mann_kendall_trend <- function(data, species_name = NULL) {
   
   # Check if Kendall package is available
   if (!requireNamespace("Kendall", quietly = TRUE)) {
-    warning("Package 'Kendall' not available. Installing basic trend calculation.")
+    warning("Package 'Kendall' not available. Using linear regression as fallback.")
     # Simple linear trend as fallback
     if (nrow(data) < 3) {
       return(list(

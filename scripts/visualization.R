@@ -1,6 +1,11 @@
 # Visualization Functions for Mast Seeding Trends
 # Create plots and figures for analyzing masting patterns
 
+# Source required utility if not already loaded
+if (!exists("calculate_cv")) {
+  source("scripts/trend_analysis.R")
+}
+
 #' Plot harvest time series
 #'
 #' @param data Data frame with Year, Species, and Harvest columns
