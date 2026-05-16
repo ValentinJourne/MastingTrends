@@ -1,6 +1,7 @@
 # MastingTrends
 
 A comprehensive R toolkit for analyzing mast seeding trends using the Polish harvest dataset and other seed production data.
+THIS IS ONGOING WORK, and Valentin Journe need to clean the code (sorry)
 
 ## Overview
 
@@ -8,14 +9,14 @@ Mast seeding (or masting) is the synchronous, highly variable production of seed
 
 - Load and preprocess harvest/seed production datasets
 - Detect temporal trends in masting behavior
-- Calculate masting metrics (CV, autocorrelation, etc.)
+- Calculate rolling CV
 - Relate masting metrics / seed production to weather
 
 ## Features
 
 - **main_analysisvFinal**: main code for analysis 
-- **Trend Analysis**: Mann-Kendall tests, linear trends, and Sen's slope estimation
-- **Masting Metrics**: Coefficient of variation (CV), temporal autocorrelation, mast year detection
+- **Trend Analysis**: simple glmm regression (using glmmTMB)
+- **Masting Metrics**: Coefficient of variation (CV)
 - **Visualizations**: Time series plots, CV trends, and summary figures
 
 ## Installation
