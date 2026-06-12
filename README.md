@@ -1,6 +1,6 @@
 # MastingTrends
 
-A comprehensive R toolkit for analyzing mast seeding trends using the Polish harvest dataset and other seed production data.
+R code accompanying the study *"Oak masting remains stable despite climate warming"*, providing functions for processing seed production and climate data, calculating masting metrics and fitting temporal trend and cue-sensitivity models.
 
 ## Overview
 
