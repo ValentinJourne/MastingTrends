@@ -3,7 +3,7 @@
 #system("git rm --cached scripts/main_analysis.R")
 #system("git rm --cached scripts/main_analysisvFinal.R")
 #system("git rm --cached scripts/main_analysis_may2026.R")
-system("git rm --cached functions.R")
+#system("git rm --cached functions.R")
 
 library(tidyverse)
 library(glmmTMB)
