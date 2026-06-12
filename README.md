@@ -1,8 +1,6 @@
 # MastingTrends
 
 A comprehensive R toolkit for analyzing mast seeding trends using the Polish harvest dataset and other seed production data.
-How to proceed? First download data from here https://zenodo.org/records/20658205 that contain harvest seed data and temperatue.
-Then go into scripts/Git_version_main.R and you can run the code. 
 
 ## Overview
 
@@ -28,6 +26,9 @@ Clone this repository:
 git clone https://github.com/ValentinJourne/MastingTrends.git
 cd MastingTrends
 ```
+Then how to proceed? once you have this new folder? 
+First download data from here https://zenodo.org/records/20658205 and put it in the folder "MastingTrends/data" that contain harvest seed data and temperature (files were too big).
+Then go into scripts/Git_version_main.R and you can run the code. 
 
 ### Required R Packages
 
