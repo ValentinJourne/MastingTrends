@@ -1,6 +1,22 @@
-# Trend Analysis Functions for Mast Seeding
-
-#check sensivity slopes
+#' Compute rolling metrics for one variable and rename outputs
+#'
+#' This helper applies `compute_rolling_metrics()` separately within each site
+#' and appends a suffix to the rolling metric columns. It is useful when the same
+#' rolling-window summaries are needed for multiple variables, such as seed
+#' production, demand, lagged seed production, or climate cues.
+#'
+#' @param data A data frame containing at least `sitenewname`, `Year`, and the
+#'   variable to summarize.
+#' @param var Unquoted variable name to summarize.
+#' @param window Numeric. Length of the rolling window, in years.
+#' @param step Numeric. Step size between rolling windows.
+#' @param suffix Character string appended to the names of rolling metric columns.
+#'   For example, `"seeds"` gives `mean_value_seeds`, `CVp_seeds`, etc.
+#' @param keep Character vector of rolling metric columns to rename. Only columns
+#'   that exist in the output of `compute_rolling_metrics()` are renamed.
+#'
+#' @return A data frame with rolling metrics calculated within each `sitenewname`,
+#'   with selected metric columns renamed using the provided suffix.
 roll_one <- function(
   data,
   var,
@@ -28,6 +44,39 @@ roll_one <- function(
     rename_with(~ paste0(.x, "_", suffix), all_of(keep_exist))
 }
 
+#' Fit cue-sensitivity models across rolling-window settings
+#'
+#' This function computes rolling-window summaries for seed production, demand,
+#' lagged seed production, and one or more climate cue variables. It then fits
+#' one mixed-effects model per cue to test the association between rolling CV of
+#' seed production and mean cue temperature within the same rolling window.
+#'
+#' @param data A data frame containing seed production, demand, lagged seed
+#'   production, climate cues, site identity, and year.
+#' @param window Numeric. Length of the rolling window, in years. Default is 10.
+#' @param step Numeric. Step size between rolling windows. Default is 5.
+#' @param cues Character vector giving the names of climate cue variables to test.
+#'   Defaults to `c("tmax.harvest_Dec", "tmax.harvest_Mar",
+#'   "tmax.harvest_AprMay")`.
+#' @param demand_var Character. Name of the demand variable. Default is `"Demand"`.
+#' @param seeds_var Character. Name of the current seed production variable.
+#'   Default is `"Seeds_cur"`.
+#' @param seeds_lag_var Character. Name of the lagged seed production variable.
+#'   Default is `"Seeds_prev"`.
+#' @param site_var Character. Name of the site identity variable. Default is
+#'   `"sitenewname"`.
+#' @param year_var Character. Name of the year variable. Currently retained for
+#'   consistency, but the function assumes the rolling output contains `Year`.
+#'
+#' @return A list with two elements:
+#' \describe{
+#'   \item{rolling_data}{A data frame containing merged rolling-window summaries
+#'   for seeds, demand, lagged seeds, and climate cues.}
+#'   \item{cue_results}{A tibble containing model results for each cue, including
+#'   window size, step size, cue name, estimate, standard error, z statistic,
+#'   p-value, and AIC.}
+#' }
+#'
 fit_cue_models_over_window <- function(
   data,
   window = 10,
@@ -42,7 +91,7 @@ fit_cue_models_over_window <- function(
   library(dplyr)
   library(glmmTMB)
 
-  # rolling for seeds, demand, lag
+  # rolling for seeds, demand and the lag seeds
   rolling_seeds <- roll_one(data, !!sym(seeds_var), window, step, "seeds")
   rolling_demand <- roll_one(data, !!sym(demand_var), window, step, "demand")
   rolling_lag <- roll_one(
@@ -53,7 +102,7 @@ fit_cue_models_over_window <- function(
     "lag1_seeds"
   )
 
-  # rolling for each cue (only mean/sd needed)
+  # rolling for each cue
   rolling_cues <- lapply(cues, function(cn) {
     suf <- sub("tmax\\.harvest_", "T_", cn)
     roll_one(
@@ -108,7 +157,7 @@ fit_cue_models_over_window <- function(
       )
   }
 
-  # derived vars
+  # get my var of interest here
   rolling_all <- rolling_all %>%
     mutate(
       log_CVp_seeds = log(CVp_seeds),
@@ -122,7 +171,7 @@ fit_cue_models_over_window <- function(
     suf <- sub("tmax\\.harvest_", "T_", cn)
     cue_col <- paste0("mean_value_", suf)
 
-    # model formula: log_CVp_seeds ~ cue + (1|site) + log1p(mean_value_demand)
+    # model formula original log_CVp_seeds ~ cue + (1|site) + log1p(mean_value_demand)
 
     fml <- as.formula(paste0(
       "log_CVp_seeds ~ ",
@@ -147,14 +196,44 @@ fit_cue_models_over_window <- function(
       AIC = AIC(m)
     )
   })
-
+  #export my lists
   list(
     rolling_data = rolling_all,
     cue_results = dplyr::bind_rows(results)
   )
 }
 
-
+#' Fit temporal trend models across rolling-window settings
+#'
+#' This function computes rolling-window summaries for seed production, demand,
+#' lagged seed production, and optional climate cue variables. It then fits a
+#' mixed-effects model testing whether the rolling coefficient of variation of
+#' seed production changes through time.
+#'
+#' @param data A data frame containing seed production, demand, lagged seed
+#'   production, site identity, year, and optional climate cue variables.
+#' @param window Numeric. Length of the rolling window, in years. Default is 10.
+#' @param step Numeric. Step size between rolling windows. Default is 5.
+#' @param cues Character vector giving the names of climate cue variables to
+#'   summarize. These are included in the returned rolling dataset but are not
+#'   used in the trend model. Default is `c("tmax.harvest_Dec",
+#'   "tmax.harvest_Mar", "tmax.harvest_AprMay")`.
+#' @param demand_var Character. Name of the demand variable. Default is `"Demand"`.
+#' @param seeds_var Character. Name of the current seed production variable.
+#'   Default is `"Seeds_cur"`.
+#' @param seeds_lag_var Character. Name of the lagged seed production variable.
+#'   Default is `"Seeds_prev"`.
+#' @param site_var Character. Name of the site identity variable. Default is
+#'   `"sitenewname"`.
+#' @param year_var Character. Name of the year variable. Currently retained for
+#'   consistency, but the function assumes the rolling output contains `Year`.
+#'
+#' @return A list with two elements:
+#' \describe{
+#'   \item{rolling_data}{A data frame containing merged rolling-window summaries.}
+#'   \item{cue_results}{A tibble of fixed-effect model estimates, including
+#'   window size, step size, AIC, and number of observations.}
+#' }
 fit_Trends_models_over_window <- function(
   data,
   window = 10,
@@ -269,8 +348,37 @@ fit_Trends_models_over_window <- function(
   )
 }
 
-# Statistical methods to detect and analyze masting trends
-
+#' Compute rolling-window reproductive metrics
+#'
+#' This function calculates rolling-window summaries for a selected variable
+#' within a time series. It is designed for masting analyses where reproductive
+#' metrics such as mean seed production, standard deviation, coefficient of
+#' variation, quantiles, and the proportion of zero years are calculated over
+#' moving time windows.
+#'
+#' @param df A data frame containing a `Year` column and the variable to be
+#'   summarized.
+#' @param variable Unquoted name of the variable to summarize.
+#' @param window Numeric. Length of the rolling window, in years. Default is 10.
+#' @param step Numeric. Step size used to retain rolling-window estimates.
+#'   Default is 1, meaning that a rolling estimate is retained for every year.
+#'   If `step = 5`, only every fifth complete rolling window is retained.
+#'
+#' @return A data frame containing the original data plus rolling-window
+#'   metrics:
+#' \describe{
+#'   \item{mean_value}{Rolling-window mean.}
+#'   \item{sd_value}{Rolling-window standard deviation.}
+#'   \item{CVp}{Rolling-window coefficient of variation, calculated as
+#'   `sd_value / mean_value`. Values are set to `NA` when the mean is zero.}
+#'   \item{p_zero}{Proportion of observations equal to zero in the rolling window.}
+#'   \item{p_nonzero}{Proportion of observations greater than zero in the rolling window.}
+#'   \item{q25}{25th percentile within the rolling window.}
+#'   \item{q90}{90th percentile within the rolling window.}
+#'   \item{Year_center}{Approximate center year of the rolling window.}
+#'   \item{Year_right_align}{Right-aligned year of the rolling window.}
+#' }
+#'
 compute_rolling_metrics <- function(df, variable, window = 10, step = 1) {
   library(slider) #for the rolling
   library(rlang) #for enqouoing the variable name
@@ -361,6 +469,21 @@ compute_rolling_metrics <- function(df, variable, window = 10, step = 1) {
 }
 
 
+#' Compute a rolling mean
+#' CODE FROM JESSIE FOEST , Ecology Letters
+#'
+#' Calculates a right-aligned rolling mean for a selected variable using
+#' `zoo::rollapplyr()`. Each value represents the mean of the current
+#' observation and the previous `win - 1` observations.
+#'
+#' @param data A data frame containing the variable to summarize.
+#' @param val Character string giving the name of the variable for which the
+#'   rolling mean should be calculated. Default is `"collection_current"`.
+#' @param win Numeric. Length of the rolling window. Default is 10.
+#'
+#' @return A numeric vector of the same length as the input variable containing
+#'   the rolling means. The first `win - 1` values are returned as `NA` because
+#'   a complete window is required.
 rollingmean <- function(data, val = "collection_current", win = 10) {
   x <- data[[val]]
   zoo::rollapplyr(
@@ -375,7 +498,21 @@ rollingmean <- function(data, val = "collection_current", win = 10) {
 }
 
 
-# Get standard devation for each 10 year window
+#' Compute a rolling standard deviation
+#'Code obtained from Jessie Foest, Ecology Letters
+#' Calculates a right-aligned rolling standard deviation for a selected variable
+#' using `zoo::rollapplyr()`. Each value represents the standard deviation of
+#' the current observation and the previous `win - 1` observations.
+#'
+#' @param data A data frame containing the variable to summarize.
+#' @param val Character string giving the name of the variable for which the
+#'   rolling standard deviation should be calculated. Default is
+#'   `"collection_current"`.
+#' @param win Numeric. Length of the rolling window. Default is 10.
+#'
+#' @return A numeric vector of the same length as the input variable containing
+#'   the rolling standard deviations. The first `win - 1` values are returned
+#'   as `NA` because a complete window is required.
 
 rollingsd <- function(data, val = "collection_current", win = 10) {
   x <- data[[val]]
@@ -390,8 +527,22 @@ rollingsd <- function(data, val = "collection_current", win = 10) {
   )
 }
 
-## Get quantiles running for each time-series ====
-
+#' Compute a rolling quantile
+#'Code from Jessie Foest, Ecology Letters
+#' Calculates a right-aligned rolling quantile for a selected variable using
+#' `zoo::rollapplyr()`. Each value represents the specified quantile of the
+#' current observation and the previous `win - 1` observations.
+#'
+#' @param data A data frame containing the variable to summarize.
+#' @param val Character string giving the name of the variable for which the
+#'   rolling quantile should be calculated. Default is `"collection_current"`.
+#' @param prob Numeric. Quantile probability to compute, typically between 0 and
+#'   1 (e.g., `0.25` for the 25th percentile, `0.90` for the 90th percentile).
+#' @param win Numeric. Length of the rolling window. Default is 10.
+#'
+#' @return A numeric vector of the same length as the input variable containing
+#'   the rolling quantile values. The first `win - 1` values are returned as
+#'   `NA` because a complete window is required.
 rollingquant <- function(data, val = "collection_current", prob, win = 10) {
   x <- data[[val]]
   zoo::rollapplyr(
@@ -404,7 +555,26 @@ rollingquant <- function(data, val = "collection_current", prob, win = 10) {
   )
 }
 
-
+#' Compute a rolling coefficient of variation
+#'
+#' Calculates the rolling coefficient of variation (CV) for a selected variable
+#' using rolling means and rolling standard deviations computed over a moving
+#' time window.
+#'
+#' @param data A data frame containing the variable to summarize.
+#' @param val Character string giving the name of the variable for which the
+#'   rolling coefficient of variation should be calculated. Default is
+#'   `"collection_current"`.
+#' @param win Numeric. Length of the rolling window. Default is 10.
+#'
+#' @return A numeric vector of the same length as the input variable containing
+#'   rolling coefficients of variation, calculated as:
+#'
+#'   \deqn{CV = \frac{\sigma}{\mu}}
+#'
+#'   where \eqn{\sigma} is the rolling standard deviation and \eqn{\mu} is the
+#'   rolling mean. The first `win - 1` values are returned as `NA` because a
+#'   complete window is required.
 rollingCVp <- function(data, val = "collection_current", win = 10) {
   mu <- rollingmean(data, val = val, win = win)
   sig <- rollingsd(data, val = val, win = win)
@@ -412,8 +582,23 @@ rollingCVp <- function(data, val = "collection_current", win = 10) {
 }
 
 
-#from kuba to get spatil sync
-## corNyrs function
+#' Compute pairwise correlations with a minimum number of overlapping years
+#'Code adaptaed from Jakub Szymkowiak here and below
+#' Calculates a pairwise Spearman correlation matrix among sites while requiring
+#' a minimum number of years with non-missing observations for each site pair.
+#' Site pairs with fewer overlapping observations than `min.no.years` are
+#' assigned `NA`.
+#'
+#' @param x A wide-format data frame or matrix where columns are sites and rows
+#'   are years or time steps.
+#' @param sites Character vector giving the site names to include. These should
+#'   match column names in `x`.
+#' @param min.no.years Numeric. Minimum number of overlapping non-missing
+#'   observations required to calculate a pairwise correlation.
+#'
+#' @return A square correlation matrix with site names as row and column names.
+#'   Values are Spearman correlation coefficients. Pairs with insufficient
+#'   overlap are returned as `NA`.
 corNyrs <- function(x, sites, min.no.years) {
   cor.mat <- matrix(NA, ncol = ncol(x), nrow = ncol(x)) ## correlation matrix template to be filled by a loop
   rownames(cor.mat) <- sites
@@ -447,12 +632,25 @@ corNyrs <- function(x, sites, min.no.years) {
   return(cor.mat) ## correlation matrix
 }
 
-##
-## matvec
-## Function transforming matrices into vectors.
-##
-
-## matvec function
+#' Convert a symmetric matrix into a pairwise vector format
+#'
+#' Transforms a square matrix (e.g., a correlation, similarity, or distance
+#' matrix) into a long-format data frame containing all unique pairwise
+#' combinations of rows/columns and their associated matrix values.
+#'
+#' @param x A square matrix with row and column names representing the entities
+#'   being compared (e.g., sites).
+#' @param var.name Character string giving the name of the output column
+#'   containing matrix values.
+#' @param id.vars Character vector of length two specifying the names of the
+#'   columns identifying the paired entities.
+#'
+#' @return A data frame with three columns:
+#' \describe{
+#'   \item{<id.vars[1]>}{First entity in the pair.}
+#'   \item{<id.vars[2]>}{Second entity in the pair.}
+#'   \item{<var.name>}{Value extracted from the matrix for that pair.}
+#' }
 matvec <- function(x, var.name, id.vars) {
   data.sim <- t(combn(colnames(x), 2))
   data.sim <- data.frame(data.sim, sim = x[data.sim])
@@ -499,7 +697,19 @@ splineFit <- function(
   return(out)
 }
 
-## ReScale function -----
+#' Rescale values to a specified range
+#'
+#' Linearly rescales a numeric vector, matrix, or data frame to a user-defined
+#' range. The minimum value of the input is mapped to `first` and the maximum
+#' value is mapped to `last`, with all intermediate values transformed
+#' proportionally.
+#'
+#' @param x A numeric vector, matrix, or data frame to be rescaled.
+#' @param first Numeric. The lower bound of the desired output range.
+#' @param last Numeric. The upper bound of the desired output range.
+#'
+#' @return An object of the same dimensions as `x`, with values rescaled to the
+#'   interval [`first`, `last`].
 ReScale <- function(x, first, last) {
   (last - first) /
     (max(x, na.rm = TRUE) - min(x, na.rm = TRUE)) *
@@ -507,9 +717,34 @@ ReScale <- function(x, first, last) {
     first
 }
 
-## windows setup
-#step for windows shift
-#and window size
+#' Calculate rolling-window spatial synchrony in seed production
+#'
+#' This function estimates spatial synchrony in seed production across sites
+#' using moving time windows. Within each window, seed production time series are
+#' log-transformed, pairwise Spearman correlations are calculated between sites,
+#' and correlations are averaged at the site level to obtain a site-specific
+#' synchrony estimate.
+#'
+#' @param dataset A data frame containing seed production data. It must include
+#'   the columns `sitenewname`, `NADL`, `Year`, `Seeds_cur`, `Longitude`,
+#'   `Latitude`, and `Species`.
+#' @param n.years Numeric. Length of the moving window in years. Default is 10.
+#' @param step Numeric. Step size used to move the rolling window forward.
+#'   Default is 10.
+#'
+#' @return A data frame with one row per site per time window, containing:
+#' \describe{
+#'   \item{NADL}{Site identifier.}
+#'   \item{mean.synch}{Mean pairwise synchrony of the site with all other sites
+#'   in the same window. Synchrony is rescaled to the interval [0, 1].}
+#'   \item{mean.dist}{Mean geographic distance from the site to all other sites.}
+#'   \item{sd.synch}{Standard deviation of pairwise synchrony values for the site.}
+#'   \item{sd.dist}{Standard deviation of pairwise geographic distances.}
+#'   \item{Species}{Species name.}
+#'   \item{window.no}{Window number.}
+#'   \item{start.year}{First year of the moving window.}
+#'   \item{end.year}{Last year of the moving window.}
+#' }
 calculate.sync = function(dataset, n.years = 10, step = 10) {
   dataset = dataset %>%
     group_by(sitenewname, Longitude, Latitude) %>%
@@ -646,156 +881,35 @@ calculate_autocorrelation <- function(data, lag = 1) {
   return(acf_result$acf[lag + 1])
 }
 
-#plot tweedie reg
-plot_tweedie_cue <- function(
-  model,
-  data,
-  x_var,
-  x_scaled_var,
-  panel_title,
-  x_lab,
-  ylab.text = 60000,
-  col = "#E64B35FF"
-) {
-  # coefficient from the fitted model
-  sm <- summary(model)$coefficients$cond
-  beta <- sm[x_scaled_var, "Estimate"]
-  se <- sm[x_scaled_var, "Std. Error"]
-  pval <- sm[x_scaled_var, "Pr(>|z|)"]
 
-  # original-scale range for predictions
-  #with min max
-  x_seq <- seq(
-    min(data[[x_var]], na.rm = TRUE),
-    max(data[[x_var]], na.rm = TRUE),
-    length.out = 200
-  )
-
-  # x_seq <- seq(
-  #   quantile(data[[x_var]], 0.05, na.rm = TRUE),
-  #   quantile(data[[x_var]], 0.95, na.rm = TRUE),
-  #   length.out = 200
-  # )
-
-  # scaling values used in the data
-  x_mean <- mean(data[[x_var]], na.rm = TRUE)
-  x_sd <- sd(data[[x_var]], na.rm = TRUE)
-
-  newdat <- data.frame(
-    #Seeds_prev = median(data$Seeds_prev, na.rm = TRUE),
-    Seeds_prev = median(data$Seeds_prev, na.rm = T),
-    Demand = median(data$Demand, na.rm = TRUE),
-    sitenewname = NA
-  )
-
-  newdat <- newdat[rep(1, length(x_seq)), , drop = FALSE]
-  newdat[[x_var]] <- x_seq
-  newdat[[x_scaled_var]] <- (x_seq - x_mean) / x_sd
-
-  pred <- predict(
-    model,
-    newdata = newdat,
-    type = "response",
-    se.fit = TRUE,
-    re.form = NA
-  )
-
-  newdat$fit <- pred$fit
-  newdat$se <- pred$se.fit
-  newdat$lwr <- pmax(0, newdat$fit - 1.96 * newdat$se)
-  newdat$upr <- newdat$fit + 1.96 * newdat$se
-
-  lab <- paste0(
-    "slope = ",
-    round(beta, 3),
-    "\nSE = ",
-    round(se, 3),
-    "\np = ",
-    signif(pval, 2)
-  )
-
-  bin_width <- 0.3
-
-  dat = ggeffects::ggpredict(
-    model,
-    terms = paste0(x_scaled_var, " [all]")
-  )
-
-  part_resid <- tibble(
-    ggeffects::residualize_over_grid(
-      dat,
-      model
-    )
-  )
-
-  part_resid$x_original <- part_resid$x * x_sd + x_mean
-
-  part_resid$bin_center <- round(part_resid$x_original / bin_width) * bin_width
-
-  summary_df <- part_resid %>%
-    group_by(bin_center) %>%
-    summarise(
-      med_y = median(predicted, na.rm = TRUE),
-      q25 = quantile(predicted, 0.25, na.rm = TRUE),
-      q75 = quantile(predicted, 0.75, na.rm = TRUE),
-      n = n(),
-      mad = mad(predicted, na.rm = TRUE),
-      se_robust = mad / sqrt(n)
-      #tm = trim_mean(predicted),
-      #se = boot_se(predicted),
-    ) %>%
-    filter(n > 1)
-
-  #ggplot(data, aes(x = .data[[x_var]], y = Seeds_cur)) +
-  ggplot(summary_df, aes(x = bin_center, y = med_y)) +
-    #geom_point(alpha = 0.2, size = 1, col = "grey10") +
-    #geom_errorbar(
-    #  aes(ymin = q25, ymax = q75),
-    #  width = 0,
-    #  alpha = .2,
-    #  col = "grey30"
-    #) +
-    # geom_errorbar(
-    #   aes(ymin = mad - se_robust, ymax = mad + se_robust),
-    #   width = 0,
-    #   alpha = .2
-    # ) +
-
-    #geom_hex() +
-    #geom_rug()+
-    geom_ribbon(
-      data = newdat,
-      aes(x = .data[[x_var]], ymin = lwr, ymax = upr),
-      inherit.aes = FALSE,
-      fill = col,
-      alpha = 0.5
-    ) +
-    geom_line(
-      data = newdat,
-      aes(x = .data[[x_var]], y = fit),
-      inherit.aes = FALSE,
-      color = col,
-      linewidth = 1.1
-    ) +
-    #annotate(
-    #  "text",
-    #  x = min(data[[x_var]], na.rm = TRUE),
-    #  y = ylab.text, #max(data$Seeds_cur, na.rm = TRUE),
-    #  label = lab,
-    #  hjust = 0,
-    #  vjust = 1,
-    #  size = 2.5
-    #) +
-    #theme_minimal() +
-    scale_fill_distiller(palette = "Blues", direction = -1) +
-    labs(
-      title = panel_title,
-      x = x_lab,
-      y = "Seed production"
-    )
-}
-
-#predict glmmTMB
+#' Generate prediction curves from a glmmTMB model
+#'
+#' Creates population-level predictions from a fitted `glmmTMB` model across the
+#' observed range of a focal predictor. The function can optionally
+#' back-transform predictions from the log scale and also returns partial
+#' residuals generated with `ggeffects`.
+#'
+#' @param model A fitted `glmmTMB` model.
+#' @param data A data frame containing the variables used in the model.
+#' @param x_var Character. Name of the focal predictor to vary along the
+#'   prediction curve.
+#' @param demand_var Character. Name of the demand variable to hold constant.
+#'   Default is `"mean_value_demand"`.
+#' @param site_var Character. Name of the site grouping variable. Default is
+#'   `"sitenewname"`.
+#' @param backtransform Character. Either `"none"` or `"exp"`. Use `"exp"` when
+#'   the model response was fitted on the log scale and predictions should be
+#'   returned on the original response scale.
+#' @param n_points Numeric. Number of points used to construct the prediction
+#'   sequence. Default is 200.
+#'
+#' @return A list with two elements:
+#' \describe{
+#'   \item{newdat}{A data frame containing the prediction grid, fitted values,
+#'   standard errors, and approximate 95% confidence intervals.}
+#'   \item{part_resid}{A tibble containing partial residuals produced by
+#'   `ggeffects::residualize_over_grid()`.}
+#' }
 predict_glmmtmb_curve <- function(
   model,
   data,
@@ -869,7 +983,33 @@ predict_glmmtmb_curve <- function(
 }
 
 
-#predict specific value
+#' Generate prediction data for a Tweedie cue-response model
+#'
+#' Creates a prediction data frame from a fitted `glmmTMB` Tweedie model across
+#' the observed range of a climate cue. The function uses the original cue
+#' variable for the prediction grid, converts it to the scaled variable used in
+#' the model, and returns fitted values with approximate 95% confidence
+#' intervals.
+#'
+#' @param model A fitted `glmmTMB` model, typically with `family = tweedie()`.
+#' @param data A data frame containing the original cue variable, the scaled cue
+#'   variable, `Seeds_prev`, `Demand`, and `sitenewname`.
+#' @param x_var Character. Name of the original, unscaled cue variable.
+#' @param x_scaled_var Character. Name of the scaled cue variable used in the
+#'   fitted model.
+#'
+#' @return A data frame containing:
+#' \describe{
+#'   \item{x_var}{Prediction values on the original cue scale.}
+#'   \item{x_scaled_var}{Prediction values on the scaled cue scale used in the model.}
+#'   \item{Seeds_prev}{Previous seed production, fixed at its median.}
+#'   \item{Demand}{Demand, fixed at its median.}
+#'   \item{sitenewname}{Set to `NA` for population-level predictions.}
+#'   \item{fit}{Predicted seed production on the response scale.}
+#'   \item{se}{Standard error of the prediction.}
+#'   \item{lwr}{Lower approximate 95% confidence interval, truncated at zero.}
+#'   \item{upr}{Upper approximate 95% confidence interval.}
+#' }
 plot_tweedie_cue_data <- function(
   model,
   data,
