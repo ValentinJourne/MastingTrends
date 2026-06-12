@@ -1,5 +1,9 @@
 # Main Analysis Script for Polish Harvest Dataset
 # Complete workflow for analyzing mast seeding trends
+#system("git rm --cached scripts/main_analysis.R")
+#system("git rm --cached scripts/main_analysisvFinal.R")
+#system("git rm --cached scripts/main_analysis_may2026.R")
+
 library(tidyverse)
 library(glmmTMB)
 library(DHARMa)
